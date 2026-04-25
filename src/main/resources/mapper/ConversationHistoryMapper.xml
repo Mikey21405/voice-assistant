@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.voice_assistant.mapper.ConversationHistoryMapper">
+
+    <resultMap id="ConversationHistoryResultMap" type="org.example.voice_assistant.entity.ConversationHistory">
+        <id column="id" property="id"/>
+        <result column="assistant_id" property="assistantId"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="call_id" property="callId"/>
+        <result column="user_message" property="userMessage"/>
+        <result column="assistant_message" property="assistantMessage"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="org.example.voice_assistant.entity.ConversationHistory" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO conversation_history(
+            assistant_id,
+            session_id,
+            call_id,
+            user_message,
+            assistant_message,
+            created_at,
+            updated_at
+        ) VALUES (
+                     #{assistantId},
+                     #{sessionId},
+                     #{callId},
+                     #{userMessage},
+                     #{assistantMessage},
+                     #{createdAt},
+                     #{updatedAt}
+                 )
+    </insert>
+
+    <select id="selectByAssistantId" resultMap="ConversationHistoryResultMap">
+        SELECT * FROM conversation_history
+        WHERE assistant_id = #{assistantId}
+        ORDER BY created_at ASC
+    </select>
+
+    <select id="selectBySessionId" resultMap="ConversationHistoryResultMap">
+        SELECT * FROM conversation_history
+        WHERE session_id = #{sessionId}
+        ORDER BY created_at ASC
+    </select>
+
+    <select id="selectByCallId" resultMap="ConversationHistoryResultMap">
+        SELECT * FROM conversation_history
+        WHERE call_id = #{callId}
+        ORDER BY created_at ASC
+    </select>
+
+    <select id="selectRecentByAssistantId" resultMap="ConversationHistoryResultMap">
+        SELECT * FROM conversation_history
+        WHERE assistant_id = #{assistantId}
+        ORDER BY created_at DESC
+            LIMIT #{limit}
+    </select>
+
+    <delete id="deleteByAssistantId">
+        DELETE FROM conversation_history
+        WHERE assistant_id = #{assistantId}
+    </delete>
+
+</mapper>

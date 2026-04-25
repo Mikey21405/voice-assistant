@@ -1,0 +1,1 @@
+RAG（Retrieval-Augmented Generation）是一种结合检索和生成的AI技术，通过检索相关文档来增强大语言模型的回答质量。RAG技术可以有效解决大模型幻觉问题。

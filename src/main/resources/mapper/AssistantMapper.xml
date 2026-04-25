@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="org.example.voice_assistant.mapper.AssistantMapper">
+
+    <resultMap id="AssistantResultMap" type="org.example.voice_assistant.entity.Assistant">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="description" property="description"/>
+        <result column="system_prompt" property="systemPrompt"/>
+        <result column="model" property="model"/>
+        <result column="max_history_rounds" property="maxHistoryRounds"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO assistant (
+            name,
+            description,
+            system_prompt,
+            model,
+            max_history_rounds,
+            created_at,
+            updated_at
+        ) VALUES (
+                     #{name},
+                     #{description},
+                     #{systemPrompt},
+                     #{model},
+                     #{maxHistoryRounds},
+                     NOW(),
+                     NOW()
+                 )
+    </insert>
+
+    <update id="update">
+        UPDATE assistant
+        SET
+            name = #{name},
+            description = #{description},
+            system_prompt = #{systemPrompt},
+            model = #{model},
+            max_history_rounds = #{maxHistoryRounds},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM assistant WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" resultMap="AssistantResultMap">
+        SELECT * FROM assistant WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultMap="AssistantResultMap">
+        SELECT * FROM assistant ORDER BY id
+    </select>
+
+    <select id="selectByName" resultMap="AssistantResultMap">
+        SELECT * FROM assistant WHERE name = #{name}
+    </select>
+
+</mapper>

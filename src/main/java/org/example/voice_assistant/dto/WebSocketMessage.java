@@ -26,6 +26,8 @@ public class WebSocketMessage {
         ASR_FINAL, // 语音识别完成
         ASR_PARTIAL, // 语音识别部分结果
         ANSWER, // 回答
+        ANSWER_STREAM, // 流式回答（逐token）
+        ANSWER_STREAM_DONE, // 流式回答完成
         TTS, // 文本转语音
         INVITE, // 建立通话
         HANGUP, // 通话结束

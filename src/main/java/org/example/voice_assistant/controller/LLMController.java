@@ -18,6 +18,7 @@ public class LLMController {
 
     private final LLMClientFactory llmClientFactory;
 
+
     @PostMapping("/chat")
     public String chat(@RequestBody ChatRequest request) {
         log.info("LLM chat request,model={},prompt={}",request.getModel(),request.getPrompt());

@@ -23,6 +23,8 @@ public class QwenChatRequest {
 
     private Integer max_tokens;
 
+    private Boolean stream;
+
     @Data
     @Builder
     @NoArgsConstructor

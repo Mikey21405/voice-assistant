@@ -1,0 +1,1 @@
+Spring Boot是一个基于Spring框架的快速开发框架，它简化了Spring应用的初始搭建和开发过程。Spring Boot通过自动配置和起步依赖来减少开发者的配置工作。

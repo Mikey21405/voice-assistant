@@ -57,7 +57,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
             webSocketMessage.setSessionId(session.getId());
             commandDispatcher.dispatch(session,webSocketMessage);
         } catch (Exception e) {
-            log.error("解析消息失败", e);
+            log.error("解析消息失败, payload={}", payload, e);
             sendError(session, "Invalid message format");
         }
 
