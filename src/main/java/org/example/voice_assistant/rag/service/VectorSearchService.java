@@ -81,6 +81,61 @@ public class VectorSearchService {
     }
 
     /**
+     * 使用多个查询变体进行搜索，去重后返回结果
+     */
+    public List<SearchResult> searchWithMultipleQueries(List<String> queries, int topK) {
+        try {
+            log.info("开始使用多个查询变体搜索，查询数量：{}，topK：{}", queries.size(), topK);
+
+            List<SearchResult> allResults = new ArrayList<>();
+
+            // 对每个查询进行搜索
+            for (String query : queries) {
+                try {
+                    List<SearchResult> results = searchSimilarDocuments(query, topK);
+                    allResults.addAll(results);
+                } catch (Exception e) {
+                    log.warn("查询变体搜索失败：{}", query, e);
+                }
+            }
+
+            // 去重（按id去重）
+            List<SearchResult> deduplicatedResults = deduplicateResults(allResults);
+
+            // 按分数排序
+            deduplicatedResults.sort((a, b) -> Float.compare(a.getScore(), b.getScore()));
+
+            // 只保留topK个结果
+            if (deduplicatedResults.size() > topK) {
+                deduplicatedResults = deduplicatedResults.subList(0, topK);
+            }
+
+            log.info("多查询搜索完成，找到 {} 个唯一文档", deduplicatedResults.size());
+            return deduplicatedResults;
+        } catch (Exception e) {
+            log.error("多查询搜索失败", e);
+            throw new RuntimeException("多查询搜索失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 去重搜索结果
+     */
+    private List<SearchResult> deduplicateResults(List<SearchResult> results) {
+        List<SearchResult> uniqueResults = new ArrayList<>();
+        List<String> seenIds = new ArrayList<>();
+
+        for (SearchResult result : results) {
+            if (!seenIds.contains(result.getId())) {
+                seenIds.add(result.getId());
+                uniqueResults.add(result);
+            }
+        }
+
+        return uniqueResults;
+    }
+
+    /**
      * 搜索结果类
      */
     @Setter

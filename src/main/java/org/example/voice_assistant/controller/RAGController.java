@@ -3,6 +3,7 @@ package org.example.voice_assistant.controller;
 import io.milvus.client.MilvusServiceClient;
 import lombok.extern.slf4j.Slf4j;
 import org.example.voice_assistant.client.MilvusClientFactory;
+import org.example.voice_assistant.config.FileUploadConfig;
 import org.example.voice_assistant.config.RAGConfig;
 import org.example.voice_assistant.constant.MilvusConstants;
 import org.example.voice_assistant.rag.service.RAGQAService;
@@ -11,7 +12,13 @@ import org.example.voice_assistant.rag.service.VectorSearchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +45,9 @@ public class RAGController {
 
     @Autowired
     private RAGConfig ragConfig;
+
+    @Autowired
+    private FileUploadConfig fileUploadConfig;
 
     /**
      * 索引指定目录下的文档
@@ -370,5 +380,172 @@ public class RAGController {
         
         log.info("topK已设置为: {}", topK);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 上传文件并索引到向量库
+     */
+    @PostMapping("/upload")
+    public ResponseEntity<Map<String, Object>> uploadAndIndexFile(
+            @RequestParam("file") MultipartFile file) {
+        try {
+            log.info("收到文件上传请求: {}", file.getOriginalFilename());
+            
+            // 检查文件类型
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename == null || !fileUploadConfig.isAllowedExtension(originalFilename)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "不支持的文件类型。支持类型: " + 
+                    String.join(", ", fileUploadConfig.getAllowedExtensions()));
+                return ResponseEntity.badRequest().body(errorResponse);
+            }
+
+            // 确保上传目录存在
+            Path uploadDir = Paths.get(fileUploadConfig.getPath()).normalize();
+            if (!Files.exists(uploadDir)) {
+                Files.createDirectories(uploadDir);
+            }
+
+            // 保存文件
+            String safeFilename = sanitizeFilename(originalFilename);
+            Path filePath = uploadDir.resolve(safeFilename);
+            Files.copy(file.getInputStream(), filePath);
+
+            log.info("文件已保存: {}", filePath.toAbsolutePath());
+
+            // 索引文件
+            vectorIndexService.indexSingleFile(filePath.toAbsolutePath().toString());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("fileName", safeFilename);
+            response.put("filePath", filePath.toAbsolutePath().toString());
+            response.put("message", "文件上传并索引成功");
+            
+            log.info("文件上传和索引完成: {}", safeFilename);
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("文件上传和索引失败", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "文件上传和索引失败: " + e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
+    /**
+     * 获取已上传的文件列表
+     */
+    @GetMapping("/files")
+    public ResponseEntity<Map<String, Object>> listFiles() {
+        try {
+            Path uploadDir = Paths.get(fileUploadConfig.getPath()).normalize();
+            File directory = uploadDir.toFile();
+
+            Map<String, Object> response = new HashMap<>();
+            
+            if (!directory.exists() || !directory.isDirectory()) {
+                response.put("success", true);
+                response.put("files", new ArrayList<Map<String, Object>>());
+                return ResponseEntity.ok(response);
+            }
+
+            File[] files = directory.listFiles((dir, name) ->
+                    fileUploadConfig.isAllowedExtension(name)
+            );
+
+            List<Map<String, Object>> fileList = new ArrayList<>();
+            if (files != null) {
+                for (File file : files) {
+                    Map<String, Object> fileInfo = new HashMap<>();
+                    fileInfo.put("name", file.getName());
+                    fileInfo.put("size", file.length());
+                    fileInfo.put("lastModified", file.lastModified());
+                    fileInfo.put("path", file.getAbsolutePath());
+                    fileList.add(fileInfo);
+                }
+            }
+
+            response.put("success", true);
+            response.put("files", fileList);
+            
+            log.info("获取文件列表，共 {} 个文件", fileList.size());
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("获取文件列表失败", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "获取文件列表失败: " + e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
+    /**
+     * 删除文件
+     */
+    @DeleteMapping("/files/{fileName}")
+    public ResponseEntity<Map<String, Object>> deleteFile(@PathVariable String fileName) {
+        try {
+            log.info("删除文件: {}", fileName);
+            
+            Path uploadDir = Paths.get(fileUploadConfig.getPath()).normalize();
+            Path filePath = uploadDir.resolve(fileName).normalize();
+
+            // 安全检查
+            if (!filePath.startsWith(uploadDir)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "非法的文件路径");
+                return ResponseEntity.badRequest().body(errorResponse);
+            }
+
+            File file = filePath.toFile();
+            if (!file.exists()) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "文件不存在");
+                return ResponseEntity.badRequest().body(errorResponse);
+            }
+
+            // 删除文件
+            Files.delete(filePath);
+
+            // 同时删除向量库中的对应数据
+            // 注意：这里我们需要确保在 VectorIndexService 中有删除单个文件的方法
+            // 这里暂时先不删除向量，后面可以扩展
+            // 或者在下次索引时，旧数据会被删除
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "文件删除成功");
+            
+            log.info("文件删除成功: {}", fileName);
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("删除文件失败", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "删除文件失败: " + e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
+    /**
+     * 安全处理文件名，防止路径遍历攻击
+     */
+    private String sanitizeFilename(String filename) {
+        // 移除路径分隔符
+        String safeName = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+        
+        // 确保不以 . 或 .. 开头
+        if (safeName.startsWith(".")) {
+            safeName = "_" + safeName;
+        }
+        
+        return safeName;
     }
 }

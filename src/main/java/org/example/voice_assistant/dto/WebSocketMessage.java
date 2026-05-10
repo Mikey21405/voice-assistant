@@ -28,7 +28,9 @@ public class WebSocketMessage {
         ANSWER, // 回答
         ANSWER_STREAM, // 流式回答（逐token）
         ANSWER_STREAM_DONE, // 流式回答完成
-        TTS, // 文本转语音
+        TTS, // 文本转语音（整段）
+        TTS_SENTENCE, // 分句TTS（逐句发送）
+        TTS_STREAM_DONE, // 分句TTS结束
         INVITE, // 建立通话
         HANGUP, // 通话结束
         ERROR, // 错误

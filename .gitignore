@@ -22,6 +22,7 @@ target/
 .sts4-cache
 
 ### NetBeans ###
+.env
 /nbproject/private/
 /nbbuild/
 /dist/

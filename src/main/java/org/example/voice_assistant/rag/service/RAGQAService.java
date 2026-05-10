@@ -1,11 +1,12 @@
 package org.example.voice_assistant.rag.service;
 
 import lombok.extern.slf4j.Slf4j;
-import org.example.voice_assistant.llm.LLMClient;
+import org.example.voice_assistant.agent.Agent;
 import org.example.voice_assistant.rag.service.VectorSearchService.SearchResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -17,7 +18,10 @@ public class RAGQAService {
     private VectorSearchService vectorSearchService;
 
     @Autowired
-    private LLMClient llmClient;
+    private QueryPreprocessor queryPreprocessor;
+
+    @Autowired
+    private Agent agent;
 
     /**
      * 【框架步骤 2-5】完整的RAG流程（非流式）
@@ -31,14 +35,32 @@ public class RAGQAService {
             log.info("🔍 【框架步骤 2】开始RAG检索，查询: {}, topK: {}", query, topK);
 
             // ============================================
-            // 【框架步骤 2】RAG检索
+            // 【框架步骤 1.5】查询预处理
             // ============================================
-            List<SearchResult> searchResults = vectorSearchService.searchSimilarDocuments(query, topK);
+            List<SearchResult> searchResults;
+            try {
+                // 预处理查询，获得多个查询变体
+                String optimizedQueriesText = queryPreprocessor.preprocessQuery(query, historyPrompt);
+                List<String> queries = parseQueries(optimizedQueriesText);
+                
+                // 添加原始查询到列表中
+                if (!queries.contains(query)) {
+                    queries.add(0, query);
+                }
+                
+                log.info("📝 查询变体: {}", queries);
+                
+                // 使用多个查询变体进行搜索
+                searchResults = vectorSearchService.searchWithMultipleQueries(queries, topK);
+            } catch (Exception e) {
+                log.warn("⚠️ 查询预处理失败，使用原始查询", e);
+                searchResults = vectorSearchService.searchSimilarDocuments(query, topK);
+            }
             
             if (searchResults.isEmpty()) {
                 log.warn("⚠️ 未检索到相关文档，使用普通对话");
                 String systemPrompt = buildBasicSystemPrompt(historyPrompt, baseSystemPrompt);
-                return llmClient.chat(query, systemPrompt);
+                return agent.run(query, systemPrompt);
             }
 
             log.info("✅ 【框架步骤 2】检索到 {} 个相关文档", searchResults.size());
@@ -53,7 +75,7 @@ public class RAGQAService {
             // ============================================
             // 【框架步骤 4】LLM调用
             // ============================================
-            String answer = llmClient.chat(query, systemPrompt);
+            String answer = agent.run(query, systemPrompt);
             log.info("✅ 【框架步骤 4】LLM调用完成");
 
             // ============================================
@@ -66,7 +88,7 @@ public class RAGQAService {
             log.error("❌ RAG问答失败，降级到普通对话", e);
             try {
                 String systemPrompt = buildBasicSystemPrompt(historyPrompt, baseSystemPrompt);
-                return llmClient.chat(query, systemPrompt);
+                return agent.run(query, systemPrompt);
             } catch (Exception ex) {
                 log.error("❌ 普通对话也失败", ex);
                 return "抱歉，我暂时无法理解您的意思，请稍后再试。";
@@ -84,9 +106,27 @@ public class RAGQAService {
             log.info("🔍 【框架步骤 2】开始RAG检索（流式），查询: {}, topK: {}", query, topK);
 
             // ============================================
-            // 【框架步骤 2】RAG检索
+            // 【框架步骤 1.5】查询预处理
             // ============================================
-            List<SearchResult> searchResults = vectorSearchService.searchSimilarDocuments(query, topK);
+            List<SearchResult> searchResults;
+            try {
+                // 预处理查询，获得多个查询变体
+                String optimizedQueriesText = queryPreprocessor.preprocessQuery(query, historyPrompt);
+                List<String> queries = parseQueries(optimizedQueriesText);
+                
+                // 添加原始查询到列表中
+                if (!queries.contains(query)) {
+                    queries.add(0, query);
+                }
+                
+                log.info("📝 查询变体: {}", queries);
+                
+                // 使用多个查询变体进行搜索
+                searchResults = vectorSearchService.searchWithMultipleQueries(queries, topK);
+            } catch (Exception e) {
+                log.warn("⚠️ 查询预处理失败，使用原始查询", e);
+                searchResults = vectorSearchService.searchSimilarDocuments(query, topK);
+            }
             
             String systemPrompt;
             if (searchResults.isEmpty()) {
@@ -107,13 +147,13 @@ public class RAGQAService {
             // ============================================
             log.info("🚀 【框架步骤 4】开始流式LLM调用");
             
-            llmClient.chatStream(query, systemPrompt, onToken, onComplete, onError);
+            agent.runStream(query, systemPrompt, onToken, onComplete, onError);
 
         } catch (Exception e) {
             log.error("❌ RAG问答失败，降级到普通对话", e);
             try {
                 String systemPrompt = buildBasicSystemPrompt(historyPrompt, baseSystemPrompt);
-                llmClient.chatStream(query, systemPrompt, onToken, onComplete, onError);
+                agent.runStream(query, systemPrompt, onToken, onComplete, onError);
             } catch (Exception ex) {
                 log.error("❌ 普通对话也失败", ex);
                 if (onError != null) {
@@ -185,5 +225,29 @@ public class RAGQAService {
         }
         
         return prompt.toString();
+    }
+
+    /**
+     * 解析LLM返回的查询变体文本
+     */
+    private List<String> parseQueries(String queriesText) {
+        List<String> queries = new ArrayList<>();
+        
+        if (queriesText == null || queriesText.trim().isEmpty()) {
+            return queries;
+        }
+        
+        // 按换行分割
+        String[] lines = queriesText.split("\n");
+        
+        for (String line : lines) {
+            line = line.trim();
+            // 过滤掉空行和可能的标记
+            if (!line.isEmpty() && !line.startsWith("原始") && !line.startsWith("优化") && !line.startsWith("【")) {
+                queries.add(line);
+            }
+        }
+        
+        return queries;
     }
 }

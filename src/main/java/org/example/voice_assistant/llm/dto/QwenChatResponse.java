@@ -41,6 +41,26 @@ public class QwenChatResponse {
     public static class Message {
         private String role;
         private String content;
+        private List<ToolCall> tool_calls;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ToolCall {
+        private String id;
+        private String type;
+        private FunctionCall function;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FunctionCall {
+        private String name;
+        private String arguments;
     }
 
     @Data
