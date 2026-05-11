@@ -2,11 +2,11 @@ package org.example.voice_assistant.rag.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.voice_assistant.agent.Agent;
+import org.example.voice_assistant.config.RAGConfig;
 import org.example.voice_assistant.rag.service.VectorSearchService.SearchResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -22,6 +22,9 @@ public class RAGQAService {
 
     @Autowired
     private Agent agent;
+
+    @Autowired
+    private RAGConfig ragConfig;
 
     /**
      * 【框架步骤 2-5】完整的RAG流程（非流式）
@@ -39,26 +42,21 @@ public class RAGQAService {
             // ============================================
             List<SearchResult> searchResults;
             try {
-                // 预处理查询，获得多个查询变体
-                String optimizedQueriesText = queryPreprocessor.preprocessQuery(query, historyPrompt);
-                List<String> queries = parseQueries(optimizedQueriesText);
-                
-                // 添加原始查询到列表中
+                List<String> queries = queryPreprocessor.preprocessQuery(query, historyPrompt);
+
                 if (!queries.contains(query)) {
                     queries.add(0, query);
                 }
-                
-                log.info("📝 查询变体: {}", queries);
-                
-                // 使用多个查询变体进行搜索
+
+                log.info("查询变体: {}", queries);
                 searchResults = vectorSearchService.searchWithMultipleQueries(queries, topK);
             } catch (Exception e) {
-                log.warn("⚠️ 查询预处理失败，使用原始查询", e);
+                log.warn("查询预处理失败，使用原始查询", e);
                 searchResults = vectorSearchService.searchSimilarDocuments(query, topK);
             }
             
-            if (searchResults.isEmpty()) {
-                log.warn("⚠️ 未检索到相关文档，使用普通对话");
+            if (!hasRelevantResults(searchResults)) {
+                log.warn("未检索到相关文档（无结果或最高相似度低于阈值），使用普通对话");
                 String systemPrompt = buildBasicSystemPrompt(historyPrompt, baseSystemPrompt);
                 return agent.run(query, systemPrompt);
             }
@@ -106,31 +104,29 @@ public class RAGQAService {
             log.info("🔍 【框架步骤 2】开始RAG检索（流式），查询: {}, topK: {}", query, topK);
 
             // ============================================
-            // 【框架步骤 1.5】查询预处理
+            // 【框架步骤 1】查询预处理
             // ============================================
             List<SearchResult> searchResults;
             try {
-                // 预处理查询，获得多个查询变体
-                String optimizedQueriesText = queryPreprocessor.preprocessQuery(query, historyPrompt);
-                List<String> queries = parseQueries(optimizedQueriesText);
-                
-                // 添加原始查询到列表中
+                List<String> queries = queryPreprocessor.preprocessQuery(query, historyPrompt);
+
                 if (!queries.contains(query)) {
                     queries.add(0, query);
                 }
-                
-                log.info("📝 查询变体: {}", queries);
-                
-                // 使用多个查询变体进行搜索
+
+                log.info("查询变体: {}", queries);
+                // ============================================
+                // 【框架步骤 2】多查询体向量检索
+                // ============================================
                 searchResults = vectorSearchService.searchWithMultipleQueries(queries, topK);
             } catch (Exception e) {
-                log.warn("⚠️ 查询预处理失败，使用原始查询", e);
+                log.warn("查询预处理失败，使用原始查询", e);
                 searchResults = vectorSearchService.searchSimilarDocuments(query, topK);
             }
             
             String systemPrompt;
-            if (searchResults.isEmpty()) {
-                log.warn("⚠️ 未检索到相关文档，使用普通对话");
+            if (!hasRelevantResults(searchResults)) {
+                log.warn("未检索到相关文档（无结果或最高相似度低于阈值），使用普通对话");
                 systemPrompt = buildBasicSystemPrompt(historyPrompt, baseSystemPrompt);
             } else {
                 log.info("✅ 【框架步骤 2】检索到 {} 个相关文档", searchResults.size());
@@ -161,6 +157,25 @@ public class RAGQAService {
                 }
             }
         }
+    }
+
+    /**
+     * 判断检索结果是否有效。
+     * 两个条件：结果非空 && 最高相似度 >= 配置的阈值。
+     */
+    private boolean hasRelevantResults(List<SearchResult> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        double threshold = ragConfig.getMinScore();
+        float maxScore = 0f;
+        for (SearchResult r : results) {
+            if (r.getScore() > maxScore) maxScore = r.getScore();
+        }
+        boolean passes = maxScore >= threshold;
+        log.info("检索最高相似度: {}, 阈值: {}, 通过: {}",
+                String.format("%.4f", maxScore), String.format("%.4f", threshold), passes);
+        return passes;
     }
 
     /**
@@ -227,27 +242,4 @@ public class RAGQAService {
         return prompt.toString();
     }
 
-    /**
-     * 解析LLM返回的查询变体文本
-     */
-    private List<String> parseQueries(String queriesText) {
-        List<String> queries = new ArrayList<>();
-        
-        if (queriesText == null || queriesText.trim().isEmpty()) {
-            return queries;
-        }
-        
-        // 按换行分割
-        String[] lines = queriesText.split("\n");
-        
-        for (String line : lines) {
-            line = line.trim();
-            // 过滤掉空行和可能的标记
-            if (!line.isEmpty() && !line.startsWith("原始") && !line.startsWith("优化") && !line.startsWith("【")) {
-                queries.add(line);
-            }
-        }
-        
-        return queries;
-    }
 }

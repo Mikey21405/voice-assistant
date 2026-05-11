@@ -7,6 +7,8 @@ import org.example.voice_assistant.config.RAGConfig;
 import org.example.voice_assistant.tts.SentenceBoundaryDetector;
 import org.example.voice_assistant.dto.WebSocketMessage;
 import org.example.voice_assistant.entity.Assistant;
+import org.example.voice_assistant.rag.service.IntentRouter;
+import org.example.voice_assistant.rag.service.QueryIntent;
 import org.example.voice_assistant.rag.service.RAGQAService;
 import org.example.voice_assistant.service.AssistantService;
 import org.example.voice_assistant.service.ConversationHistoryService;
@@ -26,19 +28,22 @@ public class AsrFinalCommandHandler extends BaseCommandHandler{
     private final AssistantService assistantService;
     private final RAGQAService ragQAService;
     private final RAGConfig ragConfig;
+    private final IntentRouter intentRouter;
 
     public AsrFinalCommandHandler(SessionManager sessionManager
             , Agent agent
             , ConversationHistoryService conversationHistoryService
             , AssistantService assistantService
             , RAGQAService ragQAService
-            , RAGConfig ragConfig) {
+            , RAGConfig ragConfig
+            , IntentRouter intentRouter) {
         super(sessionManager);
         this.agent = agent;
         this.conversationHistoryService = conversationHistoryService;
         this.assistantService = assistantService;
         this.ragQAService = ragQAService;
         this.ragConfig = ragConfig;
+        this.intentRouter = intentRouter;
     }
 
     @Override
@@ -93,15 +98,45 @@ public class AsrFinalCommandHandler extends BaseCommandHandler{
             String historyPrompt = conversationHistoryService.buildHistoryPrompt(assistantId, maxRounds);
             String baseSystemPrompt = assistant != null ? assistant.getSystemPrompt() : null;
 
-            if (useRag) {
-                log.info("🔍 【启用RAG模式】开始完整RAG流程");
-                processWithRAG(session, originalMessage, assistantId, asrText, callId, 
-                              historyPrompt, baseSystemPrompt);
-            } else {
-                log.info("💬 【普通对话模式】使用传统LLM对话");
-                processWithoutRAG(session, originalMessage, assistantId, asrText, callId, 
+            // ============================================
+            // 第一层：RAG 总开关
+            // ============================================
+            if (!useRag) {
+                log.info("【普通对话模式】RAG 总开关关闭");
+                processWithoutRAG(session, originalMessage, assistantId, asrText, callId,
                                  historyPrompt, baseSystemPrompt);
+                return;
             }
+
+            // ============================================
+            // 第二层：意图路由（自动判断是否需要检索）
+            // ============================================
+            if (ragConfig.getAutoRoute()) {
+                QueryIntent intent = intentRouter.classify(asrText);
+
+                switch (intent) {
+                    case KNOWLEDGE:
+                        log.info("【RAG 模式】意图={}，进入完整 RAG 流程", intent);
+                        processWithRAG(session, originalMessage, assistantId, asrText, callId,
+                                      historyPrompt, baseSystemPrompt);
+                        return;
+                    case CHAT:
+                        log.info("【普通对话模式】意图={}，跳过 RAG", intent);
+                        processWithoutRAG(session, originalMessage, assistantId, asrText, callId,
+                                         historyPrompt, baseSystemPrompt);
+                        return;
+                    case COMMAND:
+                        log.info("【普通对话模式】意图=COMMAND，当前暂用 LLM 处理");
+                        processWithoutRAG(session, originalMessage, assistantId, asrText, callId,
+                                         historyPrompt, baseSystemPrompt);
+                        return;
+                }
+            }
+
+            // 兜底：autoRoute=false 时全部走 RAG（保持向后兼容）
+            log.info("【RAG 模式】autoRoute=false，全部走 RAG 流程");
+            processWithRAG(session, originalMessage, assistantId, asrText, callId,
+                          historyPrompt, baseSystemPrompt);
 
         } catch (Exception e) {
             log.error("❌ 处理失败", e);
